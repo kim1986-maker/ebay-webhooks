@@ -1,20 +1,28 @@
 export default async function handler(req, res) {
+  // eBayの保存時の疎通チェック用：GETは200で応答してOKにする
+  if (req.method === "GET") {
+    return res.status(200).send("ok");
+  }
+
   if (req.method !== "POST") return res.status(405).end();
 
   const body = req.body || {};
-  const expectedToken = process.env.EBAY_VERIFICATION_TOKEN || "";
-  const incomingToken =
+  const expected = process.env.EBAY_VERIFICATION_TOKEN || "";
+
+  // トークンは Header / Body / Query のどれでも受ける
+  const incoming =
     req.headers["x-ebay-verification-token"] ||
     req.headers["x-verification-token"] ||
     body.verificationToken ||
     body.token ||
+    (req.query ? req.query.verificationToken || req.query.token : "") ||
     "";
 
-  if (!expectedToken || incomingToken !== expectedToken) {
-    console.log("Invalid token", { incomingToken });
+  if (!expected || incoming !== expected) {
+    console.log("Invalid token", { incomingToken: incoming });
     return res.status(401).json({ ok: false });
   }
 
-  console.log("Marketplace account deletion payload:", body);
+  console.log("MAD webhook payload:", body);
   return res.status(200).json({ ok: true });
 }
