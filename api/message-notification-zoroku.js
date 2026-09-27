@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, createVerify } from "crypto";
 
 
 // ============================================================
@@ -744,17 +744,103 @@ try {
 
 
 
+        // ========================================================
+    // eBay Notification Signature Verification
     // ========================================================
-    // IMPORTANT:
-    // まだECC署名検証は行わない
+
+    let signatureVerified = false;
+
+    try {
+
+      // eBay公式SDKと同じ方式で、
+      // 受信した通知JSONを署名検証対象にする
+      const signedMessage =
+        JSON.stringify(payload);
+
+      const verifier =
+        createVerify("ssl3-sha1");
+
+      verifier.update(
+        signedMessage,
+        "utf8"
+      );
+
+      verifier.end();
+
+      signatureVerified =
+        verifier.verify(
+          publicKeyResult.publicKey,
+          signatureBody,
+          "base64"
+        );
+
+
+      console.log(
+        "[eBay message webhook] signature verification:",
+        signatureVerified
+          ? "VALID"
+          : "INVALID"
+      );
+
+
+    } catch (error) {
+
+      console.error(
+        "[eBay message webhook] signature verification error:",
+        error?.message ||
+        String(error)
+      );
+
+      console.log(
+        "[eBay message webhook] no data saved"
+      );
+
+      console.log(
+        "========================================"
+      );
+
+      return res.status(412).json({
+        received: false,
+        publicKeyRetrieved: true,
+        signatureVerified: false
+      });
+    }
+
+
+
+    // ========================================================
+    // Signature INVALID
+    // ========================================================
+
+    if (!signatureVerified) {
+
+      console.error(
+        "[eBay message webhook] SIGNATURE INVALID"
+      );
+
+      console.log(
+        "[eBay message webhook] no data saved"
+      );
+
+      console.log(
+        "========================================"
+      );
+
+      return res.status(412).json({
+        received: false,
+        publicKeyRetrieved: true,
+        signatureVerified: false
+      });
+    }
+
+
+
+    // ========================================================
+    // Signature VALID
     // ========================================================
 
     console.log(
-      "[eBay message webhook] PUBLIC KEY TEST SUCCESS"
-    );
-
-    console.log(
-      "[eBay message webhook] signature verification: NOT YET IMPLEMENTED"
+      "[eBay message webhook] SIGNATURE VALID"
     );
 
     console.log(
@@ -769,9 +855,8 @@ try {
     return res.status(200).json({
       received: true,
       publicKeyRetrieved: true,
-      signatureVerified: false
+      signatureVerified: true
     });
-  }
 
 
 
