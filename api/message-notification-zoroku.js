@@ -509,6 +509,57 @@ export default async function handler(req, res) {
         : "NO"
     );
 
+    // --------------------------------------------------------
+// Signature binary inspection
+// 秘密情報そのものはログに出さない
+// --------------------------------------------------------
+
+let signatureBuffer;
+
+try {
+
+  signatureBuffer =
+    Buffer.from(
+      signatureBody,
+      "base64"
+    );
+
+  console.log(
+    "[eBay message webhook] signature base64 length:",
+    signatureBody.length
+  );
+
+  console.log(
+    "[eBay message webhook] signature decoded bytes:",
+    signatureBuffer.length
+  );
+
+  console.log(
+    "[eBay message webhook] signature first byte:",
+    signatureBuffer.length
+      ? `0x${signatureBuffer[0].toString(16).padStart(2, "0")}`
+      : ""
+  );
+
+  console.log(
+    "[eBay message webhook] signature looks DER:",
+    signatureBuffer.length &&
+    signatureBuffer[0] === 0x30
+      ? "YES"
+      : "NO"
+  );
+
+} catch (error) {
+
+  console.error(
+    "[eBay message webhook] signature binary decode failed:",
+    error?.message || String(error)
+  );
+
+  return res.status(412).json({
+    received: false
+  });
+}
 
     if (
       !publicKeyId ||
