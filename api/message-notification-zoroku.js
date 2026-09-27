@@ -61,14 +61,6 @@ export default async function handler(req, res) {
         });
     }
 
-    // eBay Destination Challenge
-    //
-    // challengeCode
-    // + verificationToken
-    // + endpoint
-    //
-    // をSHA-256
-
     const hash =
       createHash("sha256");
 
@@ -131,14 +123,14 @@ export default async function handler(req, res) {
   // ==========================================================
   // 3. eBay Notification POST
   //
-  // 現在は「調査モード」
+  // 現在は調査モード
   //
+  // ・署名の存在と構造を確認
+  // ・署名本体はログ出力しない
+  // ・署名検証はまだ行わない
   // ・Google Sheetsへ保存しない
   // ・GASへ転送しない
   // ・Gmailを変更しない
-  // ・eBayへ返信しない
-  //
-  // 受信payloadの構造をVercel Logsで確認するだけ
   // ==========================================================
 
   if (req.method === "POST") {
@@ -157,12 +149,14 @@ export default async function handler(req, res) {
     );
 
 
-    // ----------------------------------------------------------
-    // eBay Signatureヘッダー確認
-    // ----------------------------------------------------------
+    // ========================================================
+    // X-EBAY-SIGNATURE
+    // ========================================================
 
     const ebaySignature =
-      req.headers["x-ebay-signature"] || "";
+      String(
+        req.headers["x-ebay-signature"] || ""
+      ).trim();
 
     console.log(
       "[eBay message webhook] X-EBAY-SIGNATURE present:",
@@ -170,9 +164,80 @@ export default async function handler(req, res) {
     );
 
 
-    // ----------------------------------------------------------
-    // Content-Type確認
-    // ----------------------------------------------------------
+    // ========================================================
+    // 署名ヘッダーの安全な解析
+    //
+    // 署名そのものはログに出さない
+    // ========================================================
+
+    if (ebaySignature) {
+
+      try {
+
+        const decodedSignatureText =
+          Buffer
+            .from(
+              ebaySignature,
+              "base64"
+            )
+            .toString("utf8");
+
+        const decodedSignature =
+          JSON.parse(
+            decodedSignatureText
+          );
+
+
+        console.log(
+          "[eBay message webhook] signature decoded: YES"
+        );
+
+        console.log(
+          "[eBay message webhook] signature alg:",
+          decodedSignature?.alg || ""
+        );
+
+        console.log(
+          "[eBay message webhook] signature kid:",
+          decodedSignature?.kid || ""
+        );
+
+        console.log(
+          "[eBay message webhook] signature digest:",
+          decodedSignature?.digest || ""
+        );
+
+
+        const signatureBody =
+          String(
+            decodedSignature?.signature || ""
+          );
+
+        console.log(
+          "[eBay message webhook] signature body present:",
+          signatureBody ? "YES" : "NO"
+        );
+
+        console.log(
+          "[eBay message webhook] signature body length:",
+          signatureBody.length
+        );
+
+
+      } catch (error) {
+
+        console.error(
+          "[eBay message webhook] signature decode failed:",
+          error.message
+        );
+      }
+
+    }
+
+
+    // ========================================================
+    // Content-Type
+    // ========================================================
 
     console.log(
       "[eBay message webhook] content-type:",
@@ -180,13 +245,14 @@ export default async function handler(req, res) {
     );
 
 
-    // ----------------------------------------------------------
-    // Payload確認
-    // ----------------------------------------------------------
+    // ========================================================
+    // Payload
+    // ========================================================
 
-    let payload = req.body;
+    let payload =
+      req.body;
 
-    // 念のため文字列で届いた場合にも対応
+
     if (typeof payload === "string") {
 
       try {
@@ -199,11 +265,6 @@ export default async function handler(req, res) {
         console.error(
           "[eBay message webhook] JSON parse failed:",
           error.message
-        );
-
-        console.log(
-          "[eBay message webhook] raw body:",
-          payload
         );
 
         return res
@@ -228,15 +289,19 @@ export default async function handler(req, res) {
     );
 
 
-    // ----------------------------------------------------------
-    // よく使いそうな項目を個別確認
-    // ----------------------------------------------------------
+    // ========================================================
+    // Payload主要項目
+    // ========================================================
 
     const metadata =
       payload?.metadata || {};
 
     const notification =
       payload?.notification || {};
+
+    const data =
+      notification?.data || {};
+
 
     console.log(
       "[eBay message webhook] topic:",
@@ -248,24 +313,42 @@ export default async function handler(req, res) {
       metadata?.schemaVersion || ""
     );
 
+    // 前回の参照位置を修正
     console.log(
       "[eBay message webhook] notificationId:",
-      metadata?.notificationId || ""
+      notification?.notificationId || ""
     );
 
     console.log(
       "[eBay message webhook] publishDate:",
-      metadata?.publishDate || ""
+      notification?.publishDate || ""
     );
 
     console.log(
       "[eBay message webhook] notification keys:",
-      Object.keys(notification || {}).join(", ")
+      Object.keys(notification).join(", ")
+    );
+
+    console.log(
+      "[eBay message webhook] data keys:",
+      Object.keys(data).join(", ")
     );
 
 
+    // ========================================================
+    // 現在は保存しない
+    // ========================================================
+
     console.log(
-      "[eBay message webhook] TEST MODE - no data saved"
+      "[eBay message webhook] SIGNATURE INSPECTION MODE"
+    );
+
+    console.log(
+      "[eBay message webhook] signature verification: NOT YET IMPLEMENTED"
+    );
+
+    console.log(
+      "[eBay message webhook] no data saved"
     );
 
     console.log(
@@ -273,7 +356,6 @@ export default async function handler(req, res) {
     );
 
 
-    // eBayには正常受信として200を返す
     return res
       .status(200)
       .json({
@@ -283,7 +365,7 @@ export default async function handler(req, res) {
 
 
   // ==========================================================
-  // 4. その他のHTTP Method
+  // 4. その他
   // ==========================================================
 
   return res
