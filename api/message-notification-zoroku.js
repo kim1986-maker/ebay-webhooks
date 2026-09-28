@@ -758,7 +758,7 @@ try {
         JSON.stringify(payload);
 
       const verifier =
-        createVerify("ssl3-sha1");
+        createVerify("SHA1");
 
       verifier.update(
         signedMessage,
