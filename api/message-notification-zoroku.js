@@ -1050,10 +1050,55 @@ try {
       );
 
       
-      // ------------------------------------------------------
-      // eBay通知ペイロードの署名検証
-      // ------------------------------------------------------
+// ------------------------------------------------------
+// eBay official SDK compatible PEM format test
+// ------------------------------------------------------
 
+const sdkStylePublicKey =
+  String(publicKeyResult.publicKey || "")
+    .replace(
+      "-----BEGIN PUBLIC KEY-----",
+      "-----BEGIN PUBLIC KEY-----\n"
+    )
+    .replace(
+      "-----END PUBLIC KEY-----",
+      "\n-----END PUBLIC KEY-----"
+    );
+
+let sdkStyleSignatureVerified = false;
+
+try {
+  const sdkStyleVerifier =
+    createVerify("ssl3-sha1");
+
+  sdkStyleVerifier.update(
+    JSON.stringify(payload)
+  );
+
+  sdkStyleSignatureVerified =
+    sdkStyleVerifier.verify(
+      sdkStylePublicKey,
+      signatureBody,
+      "base64"
+    );
+
+  console.log(
+    "[eBay message webhook] SDK-style PEM signature:",
+    sdkStyleSignatureVerified
+      ? "VALID"
+      : "INVALID"
+  );
+
+} catch (error) {
+  console.log(
+    "[eBay message webhook] SDK-style PEM signature: ERROR"
+  );
+
+  console.log(
+    "[eBay message webhook] SDK-style PEM error:",
+    error?.message || String(error)
+  );
+}
       // ------------------------------------------------------
       // eBay signature target diagnostics
       // ------------------------------------------------------
