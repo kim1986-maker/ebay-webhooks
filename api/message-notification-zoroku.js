@@ -922,7 +922,7 @@ try {
 
 
 
-        // ========================================================
+    // ========================================================
     // eBay Notification Signature Verification
     // ========================================================
 
@@ -930,8 +930,63 @@ try {
 
     try {
 
-      // eBay公式SDKと同じ方式で、
-      // 受信した通知JSONを署名検証対象にする
+      // ------------------------------------------------------
+      // eBay Public Key APIの1行PEMを
+      // DER/SPKI形式のNode.js Public KeyObjectへ変換
+      // ------------------------------------------------------
+
+      const verificationPublicKeyText =
+        String(
+          publicKeyResult.publicKey || ""
+        );
+
+      const verificationPublicKeyBase64 =
+        verificationPublicKeyText
+          .replace(
+            "-----BEGIN PUBLIC KEY-----",
+            ""
+          )
+          .replace(
+            "-----END PUBLIC KEY-----",
+            ""
+          )
+          .replace(/\s/g, "");
+
+      if (!verificationPublicKeyBase64) {
+        throw new Error(
+          "eBay public key body is empty"
+        );
+      }
+
+      const verificationPublicKeyDer =
+        Buffer.from(
+          verificationPublicKeyBase64,
+          "base64"
+        );
+
+      const verificationPublicKey =
+        createPublicKey({
+          key: verificationPublicKeyDer,
+          format: "der",
+          type: "spki"
+        });
+
+
+      console.log(
+        "[eBay message webhook] verification public key:",
+        "READY"
+      );
+
+      console.log(
+        "[eBay message webhook] verification key type:",
+        verificationPublicKey.asymmetricKeyType || ""
+      );
+
+
+      // ------------------------------------------------------
+      // eBay通知ペイロードの署名検証
+      // ------------------------------------------------------
+
       const signedMessage =
         JSON.stringify(payload);
 
@@ -947,7 +1002,7 @@ try {
 
       signatureVerified =
         verifier.verify(
-          publicKeyResult.publicKey,
+          verificationPublicKey,
           signatureBody,
           "base64"
         );
