@@ -1054,25 +1054,87 @@ try {
       // eBay通知ペイロードの署名検証
       // ------------------------------------------------------
 
-      const signedMessage =
-        JSON.stringify(payload);
+      // ------------------------------------------------------
+      // eBay signature target diagnostics
+      // ------------------------------------------------------
 
-      const verifier =
-        createVerify("ssl3-sha1");
+      const verificationCandidates = [
+        {
+          name: "FULL_PAYLOAD",
+          value: JSON.stringify(payload)
+        },
+        {
+          name: "NOTIFICATION",
+          value: JSON.stringify(payload?.notification || {})
+        },
+        {
+          name: "DATA",
+          value: JSON.stringify(
+            payload?.notification?.data || {}
+          )
+        }
+      ];
 
-      verifier.update(
-        signedMessage,
-        "utf8"
-      );
+      let matchedCandidate = "";
 
-      verifier.end();
+      for (const candidate of verificationCandidates) {
+
+        try {
+
+          const candidateVerifier =
+            createVerify("ssl3-sha1");
+
+          candidateVerifier.update(
+            candidate.value,
+            "utf8"
+          );
+
+          candidateVerifier.end();
+
+          const candidateResult =
+            candidateVerifier.verify(
+              verificationPublicKey,
+              signatureBody,
+              "base64"
+            );
+
+          console.log(
+            `[eBay message webhook] signature candidate ${candidate.name}:`,
+            candidateResult
+              ? "VALID"
+              : "INVALID"
+          );
+
+          if (
+            candidateResult &&
+            !matchedCandidate
+          ) {
+            matchedCandidate =
+              candidate.name;
+          }
+
+        } catch (candidateError) {
+
+          console.log(
+            `[eBay message webhook] signature candidate ${candidate.name}: ERROR`
+          );
+        }
+      }
 
       signatureVerified =
-        verifier.verify(
-          verificationPublicKey,
-          signatureBody,
-          "base64"
-        );
+        Boolean(matchedCandidate);
+
+      console.log(
+        "[eBay message webhook] matched signature candidate:",
+        matchedCandidate || "NONE"
+      );
+
+      console.log(
+        "[eBay message webhook] signature verification:",
+        signatureVerified
+          ? "VALID"
+          : "INVALID"
+      );
 
 
       console.log(
