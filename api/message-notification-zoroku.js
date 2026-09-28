@@ -376,12 +376,12 @@ async function forwardVerifiedNotificationToGas_(payload) {
 
     sender_username:
       String(
-        data?.senderUserName || ""
+        data?.senderUsername || ""
       ).trim(),
 
     recipient_username:
       String(
-        data?.recipientUserName || ""
+        data?.recipientUsername || ""
       ).trim(),
 
     subject:
