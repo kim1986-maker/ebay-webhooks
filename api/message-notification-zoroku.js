@@ -1,9 +1,8 @@
 import {
   createHash,
-  createVerify,
-  createPublicKey,
-  getHashes
+  createVerify
 } from "crypto";
+
 
 // ============================================================
 // eBay Application Access Token
@@ -96,15 +95,9 @@ async function getEbayApplicationToken_() {
     "[eBay message webhook] application token acquired: YES"
   );
 
-  console.log(
-    "[eBay message webhook] application token expires_in:",
-    json?.expires_in || ""
-  );
-
 
   return accessToken;
 }
-
 
 
 // ============================================================
@@ -186,39 +179,134 @@ async function getEbayNotificationPublicKey_(
     "[eBay message webhook] public key acquired: YES"
   );
 
-  console.log(
-    "[eBay message webhook] public key length:",
-    publicKey.length
-  );
-
-  console.log(
-    "[eBay message webhook] public key begins correctly:",
-    publicKey.startsWith(
-      "-----BEGIN PUBLIC KEY-----"
-    )
-      ? "YES"
-      : "NO"
-  );
-
-  console.log(
-    "[eBay message webhook] public key ends correctly:",
-    publicKey.endsWith(
-      "-----END PUBLIC KEY-----"
-    )
-      ? "YES"
-      : "NO"
-  );
-
 
   return {
     publicKey,
+
     algorithm:
-      String(json?.algorithm || ""),
+      String(json?.algorithm || "").trim(),
+
     digest:
-      String(json?.digest || "")
+      String(json?.digest || "").trim()
   };
 }
 
+
+// ============================================================
+// eBay Public Key → SDK-compatible PEM
+// ============================================================
+
+function normalizeEbayPublicKey_(publicKey) {
+
+  const value =
+    String(publicKey || "").trim();
+
+
+  if (!value) {
+    throw new Error(
+      "eBay public key is empty"
+    );
+  }
+
+
+  /*
+   * eBay Public Key API currently returns the PEM material
+   * without line breaks around the base64 body.
+   *
+   * Convert it to the same usable PEM structure that was
+   * confirmed against real eBay notifications.
+   */
+
+  const normalized =
+    value
+      .replace(
+        "-----BEGIN PUBLIC KEY-----",
+        "-----BEGIN PUBLIC KEY-----\n"
+      )
+      .replace(
+        "-----END PUBLIC KEY-----",
+        "\n-----END PUBLIC KEY-----"
+      );
+
+
+  if (
+    !normalized.includes(
+      "-----BEGIN PUBLIC KEY-----"
+    ) ||
+    !normalized.includes(
+      "-----END PUBLIC KEY-----"
+    )
+  ) {
+    throw new Error(
+      "eBay public key PEM format is invalid"
+    );
+  }
+
+
+  return normalized;
+}
+
+
+// ============================================================
+// eBay Notification Signature Verification
+// ============================================================
+
+function verifyEbayNotificationSignature_(
+  payload,
+  signatureBody,
+  publicKey
+) {
+
+  if (
+    !payload ||
+    typeof payload !== "object"
+  ) {
+    throw new Error(
+      "notification payload is invalid"
+    );
+  }
+
+
+  if (!signatureBody) {
+    throw new Error(
+      "signature body is missing"
+    );
+  }
+
+
+  const normalizedPublicKey =
+    normalizeEbayPublicKey_(publicKey);
+
+
+  /*
+   * This is the verification target confirmed with real
+   * BUYER_QUESTION and NEW_MESSAGE notifications.
+   *
+   * Do not verify notification/data separately.
+   */
+
+  const verificationTarget =
+    JSON.stringify(payload);
+
+
+  const verifier =
+    createVerify("ssl3-sha1");
+
+
+  verifier.update(
+    verificationTarget,
+    "utf8"
+  );
+
+  verifier.end();
+
+
+  return verifier.verify(
+    normalizedPublicKey,
+    signatureBody,
+    "base64"
+  );
+}
 
 
 // ============================================================
@@ -240,7 +328,6 @@ export default async function handler(req, res) {
 
   const absoluteEndpoint =
     `${proto}://${host}${path}`;
-
 
 
   // ==========================================================
@@ -310,17 +397,11 @@ export default async function handler(req, res) {
       "[eBay message webhook] challenge received"
     );
 
-    console.log(
-      "[eBay message webhook] endpoint:",
-      absoluteEndpoint
-    );
-
 
     return res.status(200).json({
       challengeResponse
     });
   }
-
 
 
   // ==========================================================
@@ -336,7 +417,6 @@ export default async function handler(req, res) {
       .status(200)
       .send("ok");
   }
-
 
 
   // ==========================================================
@@ -369,17 +449,6 @@ export default async function handler(req, res) {
       ).trim();
 
 
-    console.log(
-      "[eBay message webhook] clientId present:",
-      clientId ? "YES" : "NO"
-    );
-
-    console.log(
-      "[eBay message webhook] clientSecret present:",
-      clientSecret ? "YES" : "NO"
-    );
-
-
     if (
       !clientId ||
       !clientSecret
@@ -389,11 +458,18 @@ export default async function handler(req, res) {
         "[eBay message webhook] client credentials missing"
       );
 
+      console.log(
+        "[eBay message webhook] no data saved"
+      );
+
+      console.log(
+        "========================================"
+      );
+
       return res.status(500).json({
         received: false
       });
     }
-
 
 
     // --------------------------------------------------------
@@ -420,15 +496,23 @@ export default async function handler(req, res) {
         "[eBay message webhook] signature missing"
       );
 
+      console.log(
+        "[eBay message webhook] no data saved"
+      );
+
+      console.log(
+        "========================================"
+      );
+
       return res.status(412).json({
-        received: false
+        received: false,
+        signatureVerified: false
       });
     }
 
 
-
     // --------------------------------------------------------
-    // Decode signature header
+    // Decode X-EBAY-SIGNATURE
     // --------------------------------------------------------
 
     let signatureMetadata;
@@ -448,7 +532,6 @@ export default async function handler(req, res) {
       signatureMetadata =
         JSON.parse(decodedText);
 
-
     } catch (error) {
 
       console.error(
@@ -457,12 +540,19 @@ export default async function handler(req, res) {
         String(error)
       );
 
+      console.log(
+        "[eBay message webhook] no data saved"
+      );
+
+      console.log(
+        "========================================"
+      );
 
       return res.status(412).json({
-        received: false
+        received: false,
+        signatureVerified: false
       });
     }
-
 
 
     const algorithm =
@@ -486,11 +576,6 @@ export default async function handler(req, res) {
       ).trim();
 
 
-
-    console.log(
-      "[eBay message webhook] signature decoded: YES"
-    );
-
     console.log(
       "[eBay message webhook] signature alg:",
       algorithm
@@ -506,64 +591,6 @@ export default async function handler(req, res) {
       publicKeyId
     );
 
-    console.log(
-      "[eBay message webhook] signature body present:",
-      signatureBody
-        ? "YES"
-        : "NO"
-    );
-
-    // --------------------------------------------------------
-// Signature binary inspection
-// 秘密情報そのものはログに出さない
-// --------------------------------------------------------
-
-let signatureBuffer;
-
-try {
-
-  signatureBuffer =
-    Buffer.from(
-      signatureBody,
-      "base64"
-    );
-
-  console.log(
-    "[eBay message webhook] signature base64 length:",
-    signatureBody.length
-  );
-
-  console.log(
-    "[eBay message webhook] signature decoded bytes:",
-    signatureBuffer.length
-  );
-
-  console.log(
-    "[eBay message webhook] signature first byte:",
-    signatureBuffer.length
-      ? `0x${signatureBuffer[0].toString(16).padStart(2, "0")}`
-      : ""
-  );
-
-  console.log(
-    "[eBay message webhook] signature looks DER:",
-    signatureBuffer.length &&
-    signatureBuffer[0] === 0x30
-      ? "YES"
-      : "NO"
-  );
-
-} catch (error) {
-
-  console.error(
-    "[eBay message webhook] signature binary decode failed:",
-    error?.message || String(error)
-  );
-
-  return res.status(412).json({
-    received: false
-  });
-}
 
     if (
       !publicKeyId ||
@@ -574,15 +601,23 @@ try {
         "[eBay message webhook] incomplete signature metadata"
       );
 
+      console.log(
+        "[eBay message webhook] no data saved"
+      );
+
+      console.log(
+        "========================================"
+      );
+
       return res.status(412).json({
-        received: false
+        received: false,
+        signatureVerified: false
       });
     }
 
 
-
     // --------------------------------------------------------
-    // Payload inspection
+    // Payload
     // --------------------------------------------------------
 
     let payload =
@@ -604,12 +639,42 @@ try {
           "[eBay message webhook] payload JSON parse failed"
         );
 
+        console.log(
+          "[eBay message webhook] no data saved"
+        );
+
+        console.log(
+          "========================================"
+        );
+
         return res.status(400).json({
           received: false
         });
       }
     }
 
+
+    if (
+      !payload ||
+      typeof payload !== "object"
+    ) {
+
+      console.error(
+        "[eBay message webhook] payload is invalid"
+      );
+
+      console.log(
+        "[eBay message webhook] no data saved"
+      );
+
+      console.log(
+        "========================================"
+      );
+
+      return res.status(400).json({
+        received: false
+      });
+    }
 
 
     const metadata =
@@ -622,27 +687,46 @@ try {
       notification?.data || {};
 
 
+    const topic =
+      String(
+        metadata?.topic || ""
+      ).trim();
+
+    const notificationId =
+      String(
+        notification?.notificationId || ""
+      ).trim();
+
+    const messageId =
+      String(
+        data?.messageId || ""
+      ).trim();
+
+    const listingId =
+      String(
+        data?.listingId || ""
+      ).trim();
+
 
     console.log(
       "[eBay message webhook] topic:",
-      metadata?.topic || ""
+      topic
     );
 
     console.log(
       "[eBay message webhook] notificationId:",
-      notification?.notificationId || ""
+      notificationId
     );
 
     console.log(
       "[eBay message webhook] messageId:",
-      data?.messageId || ""
+      messageId
     );
 
     console.log(
       "[eBay message webhook] listingId:",
-      data?.listingId || ""
+      listingId
     );
-
 
 
     // --------------------------------------------------------
@@ -665,17 +749,18 @@ try {
         String(error)
       );
 
-
       console.log(
         "[eBay message webhook] no data saved"
       );
 
+      console.log(
+        "========================================"
+      );
 
       return res.status(500).json({
         received: false
       });
     }
-
 
 
     // --------------------------------------------------------
@@ -701,226 +786,71 @@ try {
         String(error)
       );
 
-
       console.log(
         "[eBay message webhook] no data saved"
       );
 
+      console.log(
+        "========================================"
+      );
 
       return res.status(500).json({
         received: false
       });
     }
 
-    // --------------------------------------------------------
-    // Public Key format diagnostics
-    // 公開鍵そのものはログに出さない
-    // --------------------------------------------------------
-
-    try {
-
-      const publicKeyText =
-        String(
-          publicKeyResult.publicKey || ""
-        );
-
-      const hasRealLf =
-        publicKeyText.includes("\n");
-
-      const hasRealCr =
-        publicKeyText.includes("\r");
-
-      const hasLiteralBackslashN =
-        publicKeyText.includes("\\n");
-
-      const publicKeyLines =
-        publicKeyText.split(/\r?\n/);
-
-      console.log(
-        "[eBay message webhook] public key real LF:",
-        hasRealLf ? "YES" : "NO"
-      );
-
-      console.log(
-        "[eBay message webhook] public key real CR:",
-        hasRealCr ? "YES" : "NO"
-      );
-
-      console.log(
-        "[eBay message webhook] public key literal \\\\n:",
-        hasLiteralBackslashN ? "YES" : "NO"
-      );
-
-      console.log(
-        "[eBay message webhook] public key line count:",
-        publicKeyLines.length
-      );
-
-      console.log(
-        "[eBay message webhook] public key line lengths:",
-        publicKeyLines
-          .map(line => line.length)
-          .join(",")
-      );
-
-
-      const publicKeyBase64 =
-        publicKeyText
-          .replace(
-            "-----BEGIN PUBLIC KEY-----",
-            ""
-          )
-          .replace(
-            "-----END PUBLIC KEY-----",
-            ""
-          )
-          .replace(/\s/g, "");
-
-
-      const publicKeyDer =
-        Buffer.from(
-          publicKeyBase64,
-          "base64"
-        );
-
-
-      console.log(
-        "[eBay message webhook] public key base64 body length:",
-        publicKeyBase64.length
-      );
-
-      console.log(
-        "[eBay message webhook] public key DER bytes:",
-        publicKeyDer.length
-      );
-
-      console.log(
-        "[eBay message webhook] public key DER first byte:",
-        publicKeyDer.length
-          ? `0x${publicKeyDer[0]
-              .toString(16)
-              .padStart(2, "0")}`
-          : ""
-      );
-
-
-      try {
-
-        const keyObject =
-          createPublicKey(
-            publicKeyText
-          );
-
-        console.log(
-          "[eBay message webhook] createPublicKey PEM:",
-          "SUCCESS"
-        );
-
-        console.log(
-          "[eBay message webhook] key type:",
-          keyObject.type || ""
-        );
-
-        console.log(
-          "[eBay message webhook] asymmetric key type:",
-          keyObject.asymmetricKeyType || ""
-        );
-
-      } catch (pemError) {
-
-        console.log(
-          "[eBay message webhook] createPublicKey PEM:",
-          "FAILED"
-        );
-
-        console.log(
-          "[eBay message webhook] createPublicKey PEM error:",
-          pemError?.message ||
-          String(pemError)
-        );
-      }
-
-
-      try {
-
-        const derKeyObject =
-          createPublicKey({
-            key: publicKeyDer,
-            format: "der",
-            type: "spki"
-          });
-
-        console.log(
-          "[eBay message webhook] createPublicKey DER/SPKI:",
-          "SUCCESS"
-        );
-
-        console.log(
-          "[eBay message webhook] DER/SPKI key type:",
-          derKeyObject.type || ""
-        );
-
-        console.log(
-          "[eBay message webhook] DER/SPKI asymmetric key type:",
-          derKeyObject.asymmetricKeyType || ""
-        );
-
-      } catch (derError) {
-
-        console.log(
-          "[eBay message webhook] createPublicKey DER/SPKI:",
-          "FAILED"
-        );
-
-        console.log(
-          "[eBay message webhook] createPublicKey DER/SPKI error:",
-          derError?.message ||
-          String(derError)
-        );
-      }
-
-
-    } catch (diagnosticError) {
-
-      console.log(
-        "[eBay message webhook] public key diagnostic error:",
-        diagnosticError?.message ||
-        String(diagnosticError)
-      );
-    }
 
     // --------------------------------------------------------
-    // Compare metadata only
+    // Metadata consistency check
     // --------------------------------------------------------
 
-    console.log(
-      "[eBay message webhook] Public Key API algorithm:",
-      publicKeyResult.algorithm
-    );
+    const algorithmMatches =
+      algorithm.toLowerCase() ===
+      publicKeyResult.algorithm.toLowerCase();
 
-    console.log(
-      "[eBay message webhook] Public Key API digest:",
-      publicKeyResult.digest
-    );
+    const digestMatches =
+      digest.toLowerCase() ===
+      publicKeyResult.digest.toLowerCase();
 
 
     console.log(
       "[eBay message webhook] algorithm matches:",
-      algorithm.toLowerCase() ===
-      publicKeyResult.algorithm.toLowerCase()
+      algorithmMatches
         ? "YES"
         : "NO"
     );
-
 
     console.log(
       "[eBay message webhook] digest matches:",
-      digest.toLowerCase() ===
-      publicKeyResult.digest.toLowerCase()
+      digestMatches
         ? "YES"
         : "NO"
     );
 
+
+    if (
+      !algorithmMatches ||
+      !digestMatches
+    ) {
+
+      console.error(
+        "[eBay message webhook] signature metadata mismatch"
+      );
+
+      console.log(
+        "[eBay message webhook] no data saved"
+      );
+
+      console.log(
+        "========================================"
+      );
+
+      return res.status(412).json({
+        received: false,
+        publicKeyRetrieved: true,
+        signatureVerified: false
+      });
+    }
 
 
     // ========================================================
@@ -929,266 +859,15 @@ try {
 
     let signatureVerified = false;
 
+
     try {
 
-      // ------------------------------------------------------
-      // eBay Public Key APIの1行PEMを
-      // DER/SPKI形式のNode.js Public KeyObjectへ変換
-      // ------------------------------------------------------
-
-      const verificationPublicKeyText =
-        String(
-          publicKeyResult.publicKey || ""
-        );
-
-      const verificationPublicKeyBase64 =
-        verificationPublicKeyText
-          .replace(
-            "-----BEGIN PUBLIC KEY-----",
-            ""
-          )
-          .replace(
-            "-----END PUBLIC KEY-----",
-            ""
-          )
-          .replace(/\s/g, "");
-
-      if (!verificationPublicKeyBase64) {
-        throw new Error(
-          "eBay public key body is empty"
-        );
-      }
-
-      const verificationPublicKeyDer =
-        Buffer.from(
-          verificationPublicKeyBase64,
-          "base64"
-        );
-
-      const verificationPublicKey =
-        createPublicKey({
-          key: verificationPublicKeyDer,
-          format: "der",
-          type: "spki"
-        });
-
-
-      console.log(
-        "[eBay message webhook] verification public key:",
-        "READY"
-      );
-
-      console.log(
-        "[eBay message webhook] verification key type:",
-        verificationPublicKey.asymmetricKeyType || ""
-      );
-
-      // ------------------------------------------------------
-      // OpenSSL / Node.js SHA1 algorithm diagnostics
-      // ------------------------------------------------------
-
-      const availableHashes =
-        getHashes().map(
-          name => String(name).toLowerCase()
-        );
-
-      console.log(
-        "[eBay message webhook] hash sha1 available:",
-        availableHashes.includes("sha1")
-          ? "YES"
-          : "NO"
-      );
-
-      console.log(
-        "[eBay message webhook] hash rsa-sha1 available:",
-        availableHashes.includes("rsa-sha1")
-          ? "YES"
-          : "NO"
-      );
-
-      console.log(
-        "[eBay message webhook] hash ssl3-sha1 available:",
-        availableHashes.includes("ssl3-sha1")
-          ? "YES"
-          : "NO"
-      );
-
-      console.log(
-        "[eBay message webhook] SHA1 createVerify test:",
-        (() => {
-          try {
-            createVerify("SHA1");
-            return "SUCCESS";
-          } catch (error) {
-            return "FAILED";
-          }
-        })()
-      );
-
-      console.log(
-        "[eBay message webhook] RSA-SHA1 createVerify test:",
-        (() => {
-          try {
-            createVerify("RSA-SHA1");
-            return "SUCCESS";
-          } catch (error) {
-            return "FAILED";
-          }
-        })()
-      );
-
-      console.log(
-        "[eBay message webhook] ssl3-sha1 createVerify test:",
-        (() => {
-          try {
-            createVerify("ssl3-sha1");
-            return "SUCCESS";
-          } catch (error) {
-            return "FAILED";
-          }
-        })()
-      );
-
-      
-// ------------------------------------------------------
-// eBay official SDK compatible PEM format test
-// ------------------------------------------------------
-
-const sdkStylePublicKey =
-  String(publicKeyResult.publicKey || "")
-    .replace(
-      "-----BEGIN PUBLIC KEY-----",
-      "-----BEGIN PUBLIC KEY-----\n"
-    )
-    .replace(
-      "-----END PUBLIC KEY-----",
-      "\n-----END PUBLIC KEY-----"
-    );
-
-let sdkStyleSignatureVerified = false;
-
-try {
-  const sdkStyleVerifier =
-    createVerify("ssl3-sha1");
-
-  sdkStyleVerifier.update(
-    JSON.stringify(payload)
-  );
-
-  sdkStyleSignatureVerified =
-    sdkStyleVerifier.verify(
-      sdkStylePublicKey,
-      signatureBody,
-      "base64"
-    );
-
-  console.log(
-    "[eBay message webhook] SDK-style PEM signature:",
-    sdkStyleSignatureVerified
-      ? "VALID"
-      : "INVALID"
-  );
-
-} catch (error) {
-  console.log(
-    "[eBay message webhook] SDK-style PEM signature: ERROR"
-  );
-
-  console.log(
-    "[eBay message webhook] SDK-style PEM error:",
-    error?.message || String(error)
-  );
-}
-      // ------------------------------------------------------
-      // eBay signature target diagnostics
-      // ------------------------------------------------------
-
-      const verificationCandidates = [
-        {
-          name: "FULL_PAYLOAD",
-          value: JSON.stringify(payload)
-        },
-        {
-          name: "NOTIFICATION",
-          value: JSON.stringify(payload?.notification || {})
-        },
-        {
-          name: "DATA",
-          value: JSON.stringify(
-            payload?.notification?.data || {}
-          )
-        }
-      ];
-
-      let matchedCandidate = "";
-
-      for (const candidate of verificationCandidates) {
-
-        try {
-
-          const candidateVerifier =
-            createVerify("ssl3-sha1");
-
-          candidateVerifier.update(
-            candidate.value,
-            "utf8"
-          );
-
-          candidateVerifier.end();
-
-          const candidateResult =
-            candidateVerifier.verify(
-              verificationPublicKey,
-              signatureBody,
-              "base64"
-            );
-
-          console.log(
-            `[eBay message webhook] signature candidate ${candidate.name}:`,
-            candidateResult
-              ? "VALID"
-              : "INVALID"
-          );
-
-          if (
-            candidateResult &&
-            !matchedCandidate
-          ) {
-            matchedCandidate =
-              candidate.name;
-          }
-
-        } catch (candidateError) {
-
-          console.log(
-            `[eBay message webhook] signature candidate ${candidate.name}: ERROR`
-          );
-        }
-      }
-
       signatureVerified =
-        Boolean(matchedCandidate);
-
-      console.log(
-        "[eBay message webhook] matched signature candidate:",
-        matchedCandidate || "NONE"
-      );
-
-      console.log(
-        "[eBay message webhook] signature verification:",
-        signatureVerified
-          ? "VALID"
-          : "INVALID"
-      );
-
-
-      console.log(
-        "[eBay message webhook] signature verification:",
-        signatureVerified
-          ? "VALID"
-          : "INVALID"
-      );
-
+        verifyEbayNotificationSignature_(
+          payload,
+          signatureBody,
+          publicKeyResult.publicKey
+        );
 
     } catch (error) {
 
@@ -1213,6 +892,13 @@ try {
       });
     }
 
+
+    console.log(
+      "[eBay message webhook] signature verification:",
+      signatureVerified
+        ? "VALID"
+        : "INVALID"
+    );
 
 
     // ========================================================
@@ -1241,7 +927,6 @@ try {
     }
 
 
-
     // ========================================================
     // Signature VALID
     // ========================================================
@@ -1249,6 +934,36 @@ try {
     console.log(
       "[eBay message webhook] SIGNATURE VALID"
     );
+
+    console.log(
+      "[eBay message webhook] verified topic:",
+      topic
+    );
+
+    console.log(
+      "[eBay message webhook] verified messageId:",
+      messageId
+    );
+
+    console.log(
+      "[eBay message webhook] verified listingId:",
+      listingId
+    );
+
+
+    /*
+     * IMPORTANT
+     *
+     * 現段階では署名検証まで。
+     *
+     * Google Sheet
+     * GAS
+     * Gmail
+     * その他DB
+     *
+     * への保存・転送は一切行わない。
+     */
+
 
     console.log(
       "[eBay message webhook] no data saved"
@@ -1261,11 +976,14 @@ try {
 
     return res.status(200).json({
       received: true,
+      topic,
+      notificationId,
+      messageId,
+      listingId,
       publicKeyRetrieved: true,
       signatureVerified: true
     });
-    
- }
+  }
 
 
   // ==========================================================
