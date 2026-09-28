@@ -310,6 +310,165 @@ function verifyEbayNotificationSignature_(
 
 
 // ============================================================
+// GAS Notification Ingest
+// ============================================================
+
+async function forwardVerifiedNotificationToGas_(payload) {
+
+  const gasUrl =
+    String(
+      process.env.EBAY_NOTIFICATION_GAS_URL || ""
+    ).trim();
+
+  const ingestSecret =
+    String(
+      process.env.EBAY_NOTIFICATION_INGEST_SECRET || ""
+    ).trim();
+
+
+  if (!gasUrl || !ingestSecret) {
+    throw new Error(
+      "EBAY_NOTIFICATION_GAS_URL or EBAY_NOTIFICATION_INGEST_SECRET is missing"
+    );
+  }
+
+
+  const metadata =
+    payload?.metadata || {};
+
+  const notification =
+    payload?.notification || {};
+
+  const data =
+    notification?.data || {};
+
+
+  const body = {
+    secret:
+      ingestSecret,
+
+    account_name:
+      "zorokuharico",
+
+    topic:
+      String(metadata?.topic || "").trim(),
+
+    notification_id:
+      String(
+        notification?.notificationId || ""
+      ).trim(),
+
+    message_id:
+      String(data?.messageId || "").trim(),
+
+    listing_id:
+      String(data?.listingId || "").trim(),
+
+    conversation_id:
+      String(
+        data?.conversationId || ""
+      ).trim(),
+
+    conversation_type:
+      String(
+        data?.conversationType || ""
+      ).trim(),
+
+    sender_username:
+      String(
+        data?.senderUserName || ""
+      ).trim(),
+
+    recipient_username:
+      String(
+        data?.recipientUserName || ""
+      ).trim(),
+
+    subject:
+      String(data?.subject || "").trim(),
+
+    message_body:
+      String(data?.messageBody || ""),
+
+    read_status:
+      String(data?.readStatus || "").trim(),
+
+    created_date:
+      String(data?.createdDate || "").trim()
+  };
+
+
+  const response =
+    await fetch(
+      gasUrl,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body:
+          JSON.stringify(body),
+
+        redirect:
+          "follow"
+      }
+    );
+
+
+  const responseText =
+    await response.text();
+
+
+  console.log(
+    "[eBay message webhook] GAS HTTP status:",
+    response.status
+  );
+
+
+  if (!response.ok) {
+    throw new Error(
+      `GAS ingest failed: HTTP ${response.status}`
+    );
+  }
+
+
+  let result;
+
+  try {
+    result =
+      JSON.parse(responseText);
+  } catch (error) {
+    throw new Error(
+      "GAS ingest response was not valid JSON"
+    );
+  }
+
+
+  if (!result?.ok) {
+    throw new Error(
+      `GAS ingest rejected: ${String(
+        result?.error || "unknown_error"
+      )}`
+    );
+  }
+
+
+  console.log(
+    "[eBay message webhook] GAS ingest:",
+    result?.duplicate
+      ? "DUPLICATE"
+      : "SAVED"
+  );
+
+
+  return result;
+}
+
+
+// ============================================================
 // Main Vercel Handler
 // ============================================================
 
@@ -951,22 +1110,51 @@ export default async function handler(req, res) {
     );
 
 
-    /*
-     * IMPORTANT
-     *
-     * 現段階では署名検証まで。
-     *
-     * Google Sheet
-     * GAS
-     * Gmail
-     * その他DB
-     *
-     * への保存・転送は一切行わない。
-     */
+    // ========================================================
+    // Forward verified notification to GAS
+    // ========================================================
+
+    let gasResult;
+
+
+    try {
+
+      gasResult =
+        await forwardVerifiedNotificationToGas_(
+          payload
+        );
+
+    } catch (error) {
+
+      console.error(
+        "[eBay message webhook] GAS ingest failed:",
+        error?.message ||
+        String(error)
+      );
+
+      console.log(
+        "[eBay message webhook] notification not confirmed"
+      );
+
+      console.log(
+        "========================================"
+      );
+
+      return res.status(500).json({
+        received: false,
+        topic,
+        notificationId,
+        messageId,
+        listingId,
+        publicKeyRetrieved: true,
+        signatureVerified: true,
+        gasSaved: false
+      });
+    }
 
 
     console.log(
-      "[eBay message webhook] no data saved"
+      "[eBay message webhook] GAS ingest confirmed"
     );
 
     console.log(
@@ -981,7 +1169,11 @@ export default async function handler(req, res) {
       messageId,
       listingId,
       publicKeyRetrieved: true,
-      signatureVerified: true
+      signatureVerified: true,
+      gasSaved:
+        Boolean(gasResult?.saved),
+      gasDuplicate:
+        Boolean(gasResult?.duplicate)
     });
   }
 
