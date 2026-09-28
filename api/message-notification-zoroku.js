@@ -1,7 +1,8 @@
 import {
   createHash,
   createVerify,
-  createPublicKey
+  createPublicKey,
+  getHashes
 } from "crypto";
 
 // ============================================================
@@ -982,7 +983,73 @@ try {
         verificationPublicKey.asymmetricKeyType || ""
       );
 
+      // ------------------------------------------------------
+      // OpenSSL / Node.js SHA1 algorithm diagnostics
+      // ------------------------------------------------------
 
+      const availableHashes =
+        getHashes().map(
+          name => String(name).toLowerCase()
+        );
+
+      console.log(
+        "[eBay message webhook] hash sha1 available:",
+        availableHashes.includes("sha1")
+          ? "YES"
+          : "NO"
+      );
+
+      console.log(
+        "[eBay message webhook] hash rsa-sha1 available:",
+        availableHashes.includes("rsa-sha1")
+          ? "YES"
+          : "NO"
+      );
+
+      console.log(
+        "[eBay message webhook] hash ssl3-sha1 available:",
+        availableHashes.includes("ssl3-sha1")
+          ? "YES"
+          : "NO"
+      );
+
+      console.log(
+        "[eBay message webhook] SHA1 createVerify test:",
+        (() => {
+          try {
+            createVerify("SHA1");
+            return "SUCCESS";
+          } catch (error) {
+            return "FAILED";
+          }
+        })()
+      );
+
+      console.log(
+        "[eBay message webhook] RSA-SHA1 createVerify test:",
+        (() => {
+          try {
+            createVerify("RSA-SHA1");
+            return "SUCCESS";
+          } catch (error) {
+            return "FAILED";
+          }
+        })()
+      );
+
+      console.log(
+        "[eBay message webhook] ssl3-sha1 createVerify test:",
+        (() => {
+          try {
+            createVerify("ssl3-sha1");
+            return "SUCCESS";
+          } catch (error) {
+            return "FAILED";
+          }
+        })()
+      );
+
+      
       // ------------------------------------------------------
       // eBay通知ペイロードの署名検証
       // ------------------------------------------------------
