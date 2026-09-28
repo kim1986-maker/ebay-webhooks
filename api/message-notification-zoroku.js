@@ -857,7 +857,8 @@ try {
       publicKeyRetrieved: true,
       signatureVerified: true
     });
-
+    
+ }
 
 
   // ==========================================================
