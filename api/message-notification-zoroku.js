@@ -1,5 +1,8 @@
-import { createHash, createVerify } from "crypto";
-
+import {
+  createHash,
+  createVerify,
+  createPublicKey
+} from "crypto";
 
 // ============================================================
 // eBay Application Access Token
@@ -708,7 +711,182 @@ try {
       });
     }
 
+    // --------------------------------------------------------
+    // Public Key format diagnostics
+    // 公開鍵そのものはログに出さない
+    // --------------------------------------------------------
 
+    try {
+
+      const publicKeyText =
+        String(
+          publicKeyResult.publicKey || ""
+        );
+
+      const hasRealLf =
+        publicKeyText.includes("\n");
+
+      const hasRealCr =
+        publicKeyText.includes("\r");
+
+      const hasLiteralBackslashN =
+        publicKeyText.includes("\\n");
+
+      const publicKeyLines =
+        publicKeyText.split(/\r?\n/);
+
+      console.log(
+        "[eBay message webhook] public key real LF:",
+        hasRealLf ? "YES" : "NO"
+      );
+
+      console.log(
+        "[eBay message webhook] public key real CR:",
+        hasRealCr ? "YES" : "NO"
+      );
+
+      console.log(
+        "[eBay message webhook] public key literal \\\\n:",
+        hasLiteralBackslashN ? "YES" : "NO"
+      );
+
+      console.log(
+        "[eBay message webhook] public key line count:",
+        publicKeyLines.length
+      );
+
+      console.log(
+        "[eBay message webhook] public key line lengths:",
+        publicKeyLines
+          .map(line => line.length)
+          .join(",")
+      );
+
+
+      const publicKeyBase64 =
+        publicKeyText
+          .replace(
+            "-----BEGIN PUBLIC KEY-----",
+            ""
+          )
+          .replace(
+            "-----END PUBLIC KEY-----",
+            ""
+          )
+          .replace(/\s/g, "");
+
+
+      const publicKeyDer =
+        Buffer.from(
+          publicKeyBase64,
+          "base64"
+        );
+
+
+      console.log(
+        "[eBay message webhook] public key base64 body length:",
+        publicKeyBase64.length
+      );
+
+      console.log(
+        "[eBay message webhook] public key DER bytes:",
+        publicKeyDer.length
+      );
+
+      console.log(
+        "[eBay message webhook] public key DER first byte:",
+        publicKeyDer.length
+          ? `0x${publicKeyDer[0]
+              .toString(16)
+              .padStart(2, "0")}`
+          : ""
+      );
+
+
+      try {
+
+        const keyObject =
+          createPublicKey(
+            publicKeyText
+          );
+
+        console.log(
+          "[eBay message webhook] createPublicKey PEM:",
+          "SUCCESS"
+        );
+
+        console.log(
+          "[eBay message webhook] key type:",
+          keyObject.type || ""
+        );
+
+        console.log(
+          "[eBay message webhook] asymmetric key type:",
+          keyObject.asymmetricKeyType || ""
+        );
+
+      } catch (pemError) {
+
+        console.log(
+          "[eBay message webhook] createPublicKey PEM:",
+          "FAILED"
+        );
+
+        console.log(
+          "[eBay message webhook] createPublicKey PEM error:",
+          pemError?.message ||
+          String(pemError)
+        );
+      }
+
+
+      try {
+
+        const derKeyObject =
+          createPublicKey({
+            key: publicKeyDer,
+            format: "der",
+            type: "spki"
+          });
+
+        console.log(
+          "[eBay message webhook] createPublicKey DER/SPKI:",
+          "SUCCESS"
+        );
+
+        console.log(
+          "[eBay message webhook] DER/SPKI key type:",
+          derKeyObject.type || ""
+        );
+
+        console.log(
+          "[eBay message webhook] DER/SPKI asymmetric key type:",
+          derKeyObject.asymmetricKeyType || ""
+        );
+
+      } catch (derError) {
+
+        console.log(
+          "[eBay message webhook] createPublicKey DER/SPKI:",
+          "FAILED"
+        );
+
+        console.log(
+          "[eBay message webhook] createPublicKey DER/SPKI error:",
+          derError?.message ||
+          String(derError)
+        );
+      }
+
+
+    } catch (diagnosticError) {
+
+      console.log(
+        "[eBay message webhook] public key diagnostic error:",
+        diagnosticError?.message ||
+        String(diagnosticError)
+      );
+    }
 
     // --------------------------------------------------------
     // Compare metadata only
