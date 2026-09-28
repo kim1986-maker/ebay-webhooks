@@ -844,6 +844,15 @@ export default async function handler(req, res) {
 
     const data =
       notification?.data || {};
+    
+    // --------------------------------------------------------
+    // Diagnostic: actual eBay notification.data field names
+    // --------------------------------------------------------
+
+    console.log(
+      "[eBay message webhook] notification.data keys:",
+      Object.keys(data)
+    );
 
 
     const topic =
