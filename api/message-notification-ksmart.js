@@ -456,9 +456,15 @@ async function forwardVerifiedNotificationToGas_(payload) {
   }
 
 
+  // A successful HTTP response and ok:true alone do not prove persistence.
+  // Accept only explicit saved or duplicate confirmation from GAS.
+  if (result?.saved !== true && result?.duplicate !== true) {
+    throw new Error("GAS ingest not confirmed saved or duplicate");
+  }
+
   console.log(
     "[eBay message webhook] GAS ingest:",
-    result?.duplicate
+    result?.duplicate === true
       ? "DUPLICATE"
       : "SAVED"
   );
@@ -1118,6 +1124,43 @@ export default async function handler(req, res) {
       listingId
     );
 
+
+    // ========================================================
+    // Topic / notification identifier guard (STEP45-109-I)
+    // After eBay signature verification; before any GAS write.
+    // OFFER_ACTIVITY has a different schema and needs a separate
+    // mapper before it can safely be stored as a message.
+    // ========================================================
+
+    const acceptedMessageTopics = new Set([
+      "NEW_MESSAGE",
+      "BUYER_QUESTION"
+    ]);
+
+    if (!acceptedMessageTopics.has(topic)) {
+      console.warn(
+        "[eBay message webhook] verified notification skipped: unsupported topic",
+        topic
+      );
+      return res.status(200).json({
+        received: true,
+        signatureVerified: true,
+        forwarded: false,
+        reason: "unsupported_topic"
+      });
+    }
+
+    if (!notificationId) {
+      console.error(
+        "[eBay message webhook] verified notification missing notificationId"
+      );
+      return res.status(422).json({
+        received: false,
+        signatureVerified: true,
+        forwarded: false,
+        reason: "missing_notification_id"
+      });
+    }
 
     // ========================================================
     // Forward verified notification to GAS
